@@ -1,0 +1,186 @@
+# Pokémon Capture & Damage Calculators — Replit → GitHub Pages
+
+## Project overview
+
+Create a static web app (deployable on GitHub Pages and runnable on Replit) that includes:
+
+* **Capture calculator**: Given a wild Pokémon's current HP (or damage), its level, status condition, the Poké Ball used, and the Pokémon's base catch rate, the tool returns the probability (percentage) of a successful capture.
+* **Damage calculator**: Given your Pokémon (attacking), its held item (if any), move power (or selected move), attacking stat (Attack or Special Attack), the target Pokémon (defending), and their types, compute the damage range and indicate effectiveness (super-effective / not very effective / immune).
+* **Type chart**: An interactive or static table showing how types interact (x0, x0.5, x1, x2 multipliers).
+* Clean, responsive UI suitable for GitHub Pages (static files) and for developing on Replit.
+
+---
+
+## Tech stack (recommended)
+
+* Static site: **HTML + CSS + JavaScript (ES6)** — easiest to host on GitHub Pages.
+* Optional: a lightweight frontend framework (React, Svelte, or Vue) if you prefer components.
+* Build tools: none required — keep it zero-config for GitHub Pages. If using React, you can still deploy a static build.
+* Data: store type chart and item/ball multipliers in JSON files inside `/data/`.
+
+---
+
+## Pages / UI
+
+1. **Home / Dashboard**
+
+   * Brief explanation and links to the two calculators and the type chart.
+2. **Capture Calculator**
+
+   * Inputs:
+
+     * Wild Pokémon species (or manual inputs: Base Catch Rate)
+     * Level (1–100)
+     * Current HP and Max HP (or a damage slider)
+     * Status condition (None / Sleep / Freeze / Paralysis / Burn / Poison / Bad Poison)
+     * Poké Ball selection (list with descriptions: Poké Ball, Great Ball, Ultra Ball, Dusk Ball, Net Ball, Dive Ball, Quick Ball, Master Ball, etc.)
+   * Output:
+
+     * Capture probability shown as a percentage and as a visual gauge (progress bar).
+     * Breakdown of how each modifier affected the chance.
+3. **Damage Calculator**
+
+   * Inputs:
+
+     * Attacker: species (or manual), level, Attack / SpAtk, selected move (Power and category), held item, ability toggle
+     * Defender: species (or manual), level, Defense / SpDef, types (1 or 2), weather or field effects optional
+   * Output:
+
+     * Damage range (min–max), expected number of hits to KO at full HP, and effectiveness string (e.g. `2× super-effective`).
+4. **Type Chart**
+
+   * Interactive table where clicking an attack type highlights multiplier against each defense type. Exportable to CSV.
+
+---
+
+## Data and JSON structure (example)
+
+* `/data/typeChart.json` — matrix object with multipliers for each attacker -> defender combination.
+* `/data/balls.json` — list of objects: `{ "id":"pokeball", "name":"Poke Ball", "multiplier":1.0, "special":null }` (special indicates conditional like "night_or_cave: 3.5").
+* `/data/statuses.json` — `{ "none":1.0, "sleep":2.5, "freeze":2.5, "paralysis":1.5, "poison":1.0 }` (values are example multipliers; you can adjust for the target generation).
+
+---
+
+## Capture algorithm (concept + pseudo-code)
+
+**Notes:** different Pokémon game generations use slightly different capture formulas. The implementation below is a clear, documented approach that you can adapt to the generation you prefer.
+
+**Steps:**
+
+1. Gather inputs: `maxHP`, `currentHP`, `baseCatchRate`, `ballMultiplier`, `statusMultiplier`, and any conditional ball bonuses (like Dusk Ball at night).
+2. Compute an intermediate value `a` representing how "easy" the capture is after HP, status and catch-rate modifiers:
+
+   * `a = ((3 * maxHP - 2 * currentHP) / (3 * maxHP)) * baseCatchRate * ballMultiplier * statusMultiplier`
+3. Convert `a` into a probability (0–1). A commonly-used approach is:
+
+   * If `a >= 255` then probability = 1 (automatic catch)
+   * Else compute the chance using the standard four-check algorithm many games use. A simplified single-step continuous approximation is:
+
+     * `prob = clamp(a / 255, 0, 1)`
+   * For higher accuracy you can reproduce the exact multi-random-check algorithm from Bulbapedia for the generation you target (this is optional and can be added later).
+4. Return `prob * 100` as a percentage.
+
+**Example pseudo-JavaScript:**
+
+```js
+function captureProbability({ maxHP, currentHP, baseRate, ballMultiplier=1, statusMultiplier=1 }){
+  const hpFactor = (3*maxHP - 2*currentHP) / (3*maxHP);
+  const a = hpFactor * baseRate * ballMultiplier * statusMultiplier;
+  if (a >= 255) return 100;
+  const prob = Math.max(0, Math.min(1, a / 255));
+  return +(prob * 100).toFixed(2);
+}
+```
+
+*(This example uses the continuous approximation for simplicity and clear UX. If you prefer exact per-generation behavior, we can implement the exact 4-shake check algorithm.)*
+
+---
+
+## Damage algorithm (concept + pseudo-code)
+
+Use the canonical damage formula used by mainline Pokémon games (kept simple and readable). Key components:
+
+* Base damage formula (simplified):
+
+  * `Damage = (((2*Level/5 + 2) * Power * (Attack/Defense)) / 50 + 2) * Modifiers`
+* `Modifiers` is the product of: STAB (1 or 1.5), Type effectiveness (0, 0.5, 1, 2,...), random factor (0.85–1.00), item multipliers, critical hit, weather, abilities.
+
+**Example pseudo-JavaScript:**
+
+```js
+function damageRange({ level, power, atk, def, stab=1, typeEffect=1, item=1, crit=false }){
+  const base = Math.floor(((2*level/5 + 2) * power * (atk/def)) / 50) + 2;
+  const critMult = crit ? 1.5 : 1;
+  // Random factor gives a range between 85% and 100% in mainline games
+  const min = Math.floor(base * stab * typeEffect * item * critMult * 0.85);
+  const max = Math.floor(base * stab * typeEffect * item * critMult * 1.00);
+  return { min, max };
+}
+```
+
+**UX outputs:**
+
+* Present both `min` and `max` as a range and compute how many hits to KO a target at full HP.
+* Show type effectiveness with badges (×0, ×0.5, ×1, ×2) and list which moves are super-effective.
+
+---
+
+## UI/UX recommendations
+
+* Keep the top-left area for inputs and the right area for outputs with a live preview (reactive as you change inputs).
+* Use an accessible color palette and ensure the type chart is keyboard-navigable.
+* Provide toggles for generation assumptions (e.g., "Use Gen 8 formulas"), so power users can choose exact formulas.
+* Show an explanation / formula breakdown below results for transparency.
+
+---
+
+## File structure (suggested)
+
+```
+/ (root)
+  index.html          # Landing page + router
+  capture.html        # Capture calculator page (or single-page app sections)
+  damage.html         # Damage calculator page
+  style.css
+  app.js              # Main JS for UI and logic, or /src/ if using a framework
+  /data/
+    typeChart.json
+    balls.json
+    statuses.json
+  /assets/
+    icons, images
+  README.md           # Project description and deployment steps
+```
+
+---
+
+## Deployment instructions (brief)
+
+* **GitHub Pages:** Push this repository to GitHub and enable Pages in the repository settings (branch: `main` or `gh-pages`, folder: `/root` or `/docs`). If the site is plain static files, it will publish immediately.
+* **Replit:** Create a new Replit project, upload the files, and run with a static server (or Replit's static hosting). Replit also provides a shareable URL for quick testing.
+
+---
+
+## Accessibility & testing
+
+* Add `aria-*` labels to inputs and results.
+* Test with screen readers and keyboard-only navigation.
+* Include unit tests (optional) for the calculation functions; for example, small JS tests that verify expected outputs for known inputs.
+
+---
+
+## Optional enhancements
+
+* Add a Pokédex lookup (fetch species data from a local JSON or the PokéAPI) to auto-fill base stats and base catch rate.
+* Add move databases and ability/medicine/item effects for higher accuracy.
+* Add multi-language support (i18n) — Spanish/English toggles.
+
+---
+
+## Next steps I can help with
+
+* Generate the full static HTML/CSS/JS implementation (single-page or multi-page) ready for GitHub Pages.
+* Implement the exact per-generation capture formula (with Shake-check algorithm) and accurate damage formula that accounts for abilities, items, weather, and criticals.
+* Provide a ready-to-push GitHub repo structure and a Replit import link.
+
+*If you want, I can now generate the first-working version (HTML + CSS + vanilla JS) of this site and include the two calculators and the type chart as a single-page app ready to deploy.*
